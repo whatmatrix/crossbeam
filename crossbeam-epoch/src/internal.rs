@@ -243,7 +243,11 @@ impl Global {
                     return global_epoch;
                 }
                 Ok(local) => {
-                    let local_epoch = local.epoch.load(Ordering::Relaxed);
+                    let local_epoch = if cfg!(sanitize_thread) {
+                        local.epoch.load(Ordering::Acquire)
+                    } else {
+                        local.epoch.load(Ordering::Relaxed)
+                    };
 
                     // If the participant was pinned in a different epoch, we cannot advance the
                     // global epoch just yet.
@@ -253,7 +257,9 @@ impl Global {
                 }
             }
         }
-        atomic::fence(Ordering::Acquire);
+        if !cfg!(sanitize_thread) {
+            atomic::fence(Ordering::Acquire);
+        }
 
         // All pinned participants were pinned in the current global epoch.
         // Now let's advance the global epoch...

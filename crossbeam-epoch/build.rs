@@ -52,5 +52,13 @@ fn main() {
         println!("cargo:rustc-cfg=crossbeam_no_const_fn_trait_bound");
     }
 
+    // `cfg(sanitize = "..")` is not stabilized.
+    if std::env::var("CARGO_CFG_SANITIZE")
+        .unwrap_or_default()
+        .contains("thread")
+    {
+        println!("cargo:rustc-cfg=sanitize_thread");
+    }
+
     println!("cargo:rerun-if-changed=no_atomic.rs");
 }
