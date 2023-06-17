@@ -250,10 +250,16 @@ impl Global {
                     if local_epoch.is_pinned() && local_epoch.unpinned() != global_epoch {
                         return global_epoch;
                     }
+
+                    if cfg!(crossbeam_sanitize_thread) {
+                        local.epoch.load(Ordering::Acquire);
+                    }
                 }
             }
         }
-        atomic::fence(Ordering::Acquire);
+        if !cfg!(crossbeam_sanitize_thread) {
+            atomic::fence(Ordering::Acquire);
+        }
 
         // All pinned participants were pinned in the current global epoch.
         // Now let's advance the global epoch...

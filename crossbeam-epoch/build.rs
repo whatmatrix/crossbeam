@@ -54,4 +54,10 @@ fn main() {
     if !cfg.probe_rustc_version(1, 61) {
         println!("cargo:rustc-cfg=crossbeam_no_const_fn_trait_bound");
     }
+
+    // `cfg(sanitize = "..")` is not stabilized.
+    let sanitize = env::var("CARGO_CFG_SANITIZE").unwrap_or_default();
+    if sanitize.contains("thread") {
+        println!("cargo:rustc-cfg=crossbeam_sanitize_thread");
+    }
 }
