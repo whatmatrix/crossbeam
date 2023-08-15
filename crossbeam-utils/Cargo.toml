@@ -6,7 +6,7 @@ name = "crossbeam-utils"
 # - Create "crossbeam-utils-X.Y.Z" git tag
 version = "0.8.16"
 edition = "2018"
-rust-version = "1.38"
+rust-version = "1.59"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/crossbeam-rs/crossbeam"
 homepage = "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-utils"
@@ -22,6 +22,7 @@ default = ["std"]
 std = []
 
 [dependencies]
+atomic-maybe-uninit = "0.2.22"
 cfg-if = "1"
 
 # Enable the use of loom for concurrency testing.
