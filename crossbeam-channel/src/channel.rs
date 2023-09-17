@@ -785,6 +785,13 @@ impl<T> Receiver<T> {
         }
     }
 
+    pub unsafe fn try_peek<'a>(&'a self) -> Result<&'a T, TryRecvError> {
+        match &self.flavor {
+            ReceiverFlavor::Array(chan) => chan.try_peek(),
+            _ => panic!("should not be called other than array"),
+        }
+    }
+
     /// Blocks the current thread until a message is received or the channel is empty and
     /// disconnected.
     ///

@@ -392,6 +392,32 @@ impl<T> Channel<T> {
         }
     }
 
+    pub(crate) unsafe fn try_peek<'a>(&'a self) -> Result<&'a T, TryRecvError> {
+        let mut head = self.head.load(Ordering::Relaxed);
+        let index = head & (self.mark_bit - 1);
+
+        // Inspect the corresponding slot.
+        debug_assert!(index < self.buffer.len());
+        let slot = unsafe { self.buffer.get_unchecked(index) };
+        let stamp = slot.stamp.load(Ordering::Acquire);
+        if stamp == head + 1 {
+            return Ok(std::mem::transmute(slot.msg.get().as_ref()))
+        } else if stamp == head {
+            atomic::fence(Ordering::SeqCst);
+            let tail = self.tail.load(Ordering::Relaxed);
+
+            // If the tail equals the head, that means the channel is empty.
+            if (tail & !self.mark_bit) == head {
+                // If the channel is disconnected...
+                if tail & self.mark_bit != 0 {
+                    return Err(TryRecvError::Disconnected);
+                }
+            }
+        }
+        // Otherwise, the receive operation is not ready.
+        return Err(TryRecvError::Empty);
+    }
+
     /// Receives a message from the channel.
     pub(crate) fn recv(&self, deadline: Option<Instant>) -> Result<T, RecvTimeoutError> {
         let token = &mut Token::default();
