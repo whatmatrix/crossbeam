@@ -211,6 +211,7 @@ impl<T> Channel<T> {
 
     /// Attempts to reserve a slot for sending a message.
     fn start_send_noyield(&self, token: &mut Token) -> bool {
+        let backoff = Backoff::new();
         let mut tail = self.tail.load(Ordering::Relaxed);
 
         loop {
@@ -272,6 +273,7 @@ impl<T> Channel<T> {
                 tail = self.tail.load(Ordering::Relaxed);
             } else {
                 // Snooze because we need to wait for the stamp to get updated.
+                backoff.snooze();
                 tail = self.tail.load(Ordering::Relaxed);
             }
         }
