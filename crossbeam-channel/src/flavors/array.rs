@@ -209,6 +209,74 @@ impl<T> Channel<T> {
         }
     }
 
+    /// Attempts to reserve a slot for sending a message.
+    fn start_send_noyield(&self, token: &mut Token) -> bool {
+        let mut tail = self.tail.load(Ordering::Relaxed);
+
+        loop {
+            // Check if the channel is disconnected.
+            if tail & self.mark_bit != 0 {
+                token.array.slot = ptr::null();
+                token.array.stamp = 0;
+                return true;
+            }
+
+            // Deconstruct the tail.
+            let index = tail & (self.mark_bit - 1);
+            let lap = tail & !(self.one_lap - 1);
+
+            // Inspect the corresponding slot.
+            debug_assert!(index < self.buffer.len());
+            let slot = unsafe { self.buffer.get_unchecked(index) };
+            let stamp = slot.stamp.load(Ordering::Acquire);
+
+            // If the tail and the stamp match, we may attempt to push.
+            if tail == stamp {
+                let new_tail = if index + 1 < self.cap {
+                    // Same lap, incremented index.
+                    // Set to `{ lap: lap, mark: 0, index: index + 1 }`.
+                    tail + 1
+                } else {
+                    // One lap forward, index wraps around to zero.
+                    // Set to `{ lap: lap.wrapping_add(1), mark: 0, index: 0 }`.
+                    lap.wrapping_add(self.one_lap)
+                };
+
+                // Try moving the tail.
+                match self.tail.compare_exchange_weak(
+                    tail,
+                    new_tail,
+                    Ordering::SeqCst,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => {
+                        // Prepare the token for the follow-up call to `write`.
+                        token.array.slot = slot as *const Slot<T> as *const u8;
+                        token.array.stamp = tail + 1;
+                        return true;
+                    }
+                    Err(t) => {
+                        tail = t;
+                    }
+                }
+            } else if stamp.wrapping_add(self.one_lap) == tail + 1 {
+                atomic::fence(Ordering::SeqCst);
+                let head = self.head.load(Ordering::Relaxed);
+
+                // If the head lags one lap behind the tail as well...
+                if head.wrapping_add(self.one_lap) == tail {
+                    // ...then the channel is full.
+                    return false;
+                }
+
+                tail = self.tail.load(Ordering::Relaxed);
+            } else {
+                // Snooze because we need to wait for the stamp to get updated.
+                tail = self.tail.load(Ordering::Relaxed);
+            }
+        }
+    }
+
     /// Writes a message into the channel.
     pub(crate) unsafe fn write(&self, token: &mut Token, msg: T) -> Result<(), T> {
         // If there is no slot, the channel is disconnected.
@@ -328,6 +396,16 @@ impl<T> Channel<T> {
         }
     }
 
+    /// Attempts to send a message into the channel.
+    pub(crate) fn try_send_noyield(&self, msg: T) -> Result<(), TrySendError<T>> {
+        let token = &mut Token::default();
+        if self.start_send_noyield(token) {
+            unsafe { self.write(token, msg).map_err(TrySendError::Disconnected) }
+        } else {
+            Err(TrySendError::Full(msg))
+        }
+    }
+
     /// Sends a message into the channel.
     pub(crate) fn send(
         &self,
@@ -387,6 +465,21 @@ impl<T> Channel<T> {
 
         if self.start_recv(token) {
             unsafe { self.read(token).map_err(|_| TryRecvError::Disconnected) }
+        } else {
+            Err(TryRecvError::Empty)
+        }
+    }
+
+    /// Attempts to discard a message without blocking and copying.
+    pub(crate) fn try_discard(&self) -> Result<(), TryRecvError> {
+        let token = &mut Token::default();
+
+        if self.start_recv(token) {
+            if token.array.slot.is_null() {
+                Err(TryRecvError::Disconnected)
+            } else {
+                Ok(())
+            }
         } else {
             Err(TryRecvError::Empty)
         }
