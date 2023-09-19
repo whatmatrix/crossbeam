@@ -791,6 +791,12 @@ impl<T> Receiver<T> {
         }
     }
 
+    pub fn try_discard(&self) -> Result<(), TryRecvError> {
+        match &self.flavor {
+            ReceiverFlavor::Array(chan) => chan.try_discard(),
+            _ => panic!("not supported operation"),
+        }
+    }
     pub unsafe fn try_peek<'a>(&'a self) -> Result<&'a T, TryRecvError> {
         match &self.flavor {
             ReceiverFlavor::Array(chan) => chan.try_peek(),
