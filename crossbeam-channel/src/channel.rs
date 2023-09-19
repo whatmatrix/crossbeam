@@ -408,6 +408,12 @@ impl<T> Sender<T> {
         }
     }
 
+    pub fn try_send_noyield(&self, msg: T) -> Result<(), TrySendError<T>> {
+        match &self.flavor {
+            SenderFlavor::Array(chan) => chan.try_send_noyield(msg),
+            _ => panic!("not supported operation"),
+        }
+    }
     /// Blocks the current thread until a message is sent or the channel is disconnected.
     ///
     /// If the channel is full and not disconnected, this call will block until the send operation
