@@ -492,11 +492,7 @@ impl<T> Channel<T> {
         let token = &mut Token::default();
 
         if self.start_recv(token) {
-            if token.array.slot.is_null() {
-                unsafe { self.discard(token) }
-            } else {
-                Ok(())
-            }
+            unsafe { self.discard(token) }
         } else {
             Err(TryRecvError::Empty)
         }
