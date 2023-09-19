@@ -211,7 +211,6 @@ impl<T> Channel<T> {
 
     /// Attempts to reserve a slot for sending a message.
     fn start_send_noyield(&self, token: &mut Token) -> bool {
-        let backoff = Backoff::new();
         let mut tail = self.tail.load(Ordering::Relaxed);
 
         loop {
@@ -273,7 +272,6 @@ impl<T> Channel<T> {
                 tail = self.tail.load(Ordering::Relaxed);
             } else {
                 // Snooze because we need to wait for the stamp to get updated.
-                backoff.snooze();
                 tail = self.tail.load(Ordering::Relaxed);
             }
         }
@@ -388,6 +386,23 @@ impl<T> Channel<T> {
         Ok(msg)
     }
 
+    /// Reads a message from the channel.
+    pub(crate) unsafe fn discard(&self, token: &mut Token) -> Result<(), TryRecvError> {
+        if token.array.slot.is_null() {
+            // The channel is disconnected.
+            return Err(TryRecvError::Disconnected);
+        }
+
+        let slot: &Slot<T> = &*token.array.slot.cast::<Slot<T>>();
+
+        // Read the message from the slot and update the stamp.
+        slot.stamp.store(token.array.stamp, Ordering::Release);
+
+        // Wake a sleeping sender.
+        self.senders.notify();
+        Ok(())
+    }
+
     /// Attempts to send a message into the channel.
     pub(crate) fn try_send(&self, msg: T) -> Result<(), TrySendError<T>> {
         let token = &mut Token::default();
@@ -478,7 +493,7 @@ impl<T> Channel<T> {
 
         if self.start_recv(token) {
             if token.array.slot.is_null() {
-                Err(TryRecvError::Disconnected)
+                unsafe { self.discard(token) }
             } else {
                 Ok(())
             }
